@@ -156,14 +156,45 @@ class DataparallelModel(GenericModel):
         outputs = torch.cat(outputs, dim=0)
 
         if not no_grad:
-            for param_group in self.param_group_gen():
+            #Ring All-reduce implementation
+            for index, param_group in enumerate(self.param_group_gen()):
                 param_group_data = tuple(p.grad for p in param_group)
+                mod_reduced_tensor = torch.mean(torch.stack(param_group_data, dim=0), dim=0)
 
-                # Modify gradient allreduce here
-                # Below is a star-allreduce implementation. Replace it with your own.
-                reduced_tensor = torch.mean(torch.stack(param_group_data, dim=0), dim=0)
-                for grad in param_group_data:
-                    grad[...] = reduced_tensor[...]
+                P = len(param_group_data)
+                N = len(param_group[0])
+                chunk = N // P
+
+                param_group_data[0][3*chunk:4*chunk] += param_group_data[3][3*chunk:4*chunk]
+                param_group_data[1][0:chunk] += param_group_data[0][0:chunk]
+                param_group_data[2][chunk:2*chunk] += param_group_data[1][chunk:2*chunk]
+                param_group_data[3][2*chunk:3*chunk] += param_group_data[2][2*chunk:3*chunk]
+
+                param_group_data[2][2 * chunk:3*chunk] += param_group_data[3][2 * chunk:3*chunk]
+                param_group_data[3][3*chunk:4*chunk] += param_group_data[0][3*chunk:4*chunk]
+                param_group_data[0][0:chunk] += param_group_data[1][0:chunk]
+                param_group_data[1][chunk:2*chunk] += param_group_data[2][chunk:2*chunk]
+
+                param_group_data[1][chunk:2*chunk] += param_group_data[3][chunk:2*chunk]
+                param_group_data[2][2*chunk:3*chunk] += param_group_data[0][2*chunk:3*chunk]
+                param_group_data[3][3*chunk:4*chunk] += param_group_data[1][3*chunk:4*chunk]
+                param_group_data[0][0:chunk] += param_group_data[2][0:chunk]
+
+                temp0 = param_group_data[1][chunk:2*chunk]/4
+                temp1 = param_group_data[2][2*chunk:3*chunk]/4
+                temp2 = param_group_data[3][3*chunk:4*chunk]/4
+                temp3 = param_group_data[0][0:chunk]/4
+
+                for i in range(4):
+                    param_group_data[i][0:chunk] = temp3
+                    param_group_data[i][chunk:2*chunk] = temp0
+                    param_group_data[i][2*chunk:3*chunk] = temp1
+                    param_group_data[i][3*chunk:4*chunk] = temp2
+
+                if N % P != 0:
+                    for grad in param_group_data:
+                        grad[P*chunk: N] = mod_reduced_tensor[P*chunk: N]
+
 
         if not dry_run and not no_grad:
             for i_replica, (model, optimizer) in enumerate(zip(self.models, self.optimizers)):
