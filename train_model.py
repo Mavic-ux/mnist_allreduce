@@ -139,8 +139,8 @@ class DataparallelModel(GenericModel):
         losses = []
         outputs = []
         for i_replica, (model, optimizer) in enumerate(zip(self.models, self.optimizers)):
-            data_rep = data[i_replica*offset:(i_replica+1)*offset]
-            target_rep = target[i_replica*offset:(i_replica+1)*offset]
+            data_rep = data[i_replica * offset:(i_replica + 1) * offset]
+            target_rep = target[i_replica * offset:(i_replica + 1) * offset]
             if not no_grad:
                 optimizer.zero_grad()
             with torch.no_grad() if no_grad else contextlib.nullcontext():
@@ -157,61 +157,66 @@ class DataparallelModel(GenericModel):
 
         if not no_grad:
             for index, param_group in enumerate(self.param_group_gen()):
-                # Star-allreduce implementation
+                # Star-All-reduce implementation
                 '''
                 param_group_data = tuple(p.grad for p in param_group)
                 reduced_tensor = torch.mean(torch.stack(param_group_data, dim=0), dim=0)
-                
+
                 for grad in param_group_data:
                     grad[...] = reduced_tensor[...]
 
-                print(f"grad : {param_group_data[0]}")
                 '''
-                # Ring All-reduce implementation
+                # Ring-All-reduce implementation
+
                 mod_param_group_data = tuple(p.grad for p in param_group)
-                reduced_tensor = torch.mean(torch.stack(mod_param_group_data, dim=0), dim=0)
-                P = len(mod_param_group_data)
-                N = len(mod_param_group_data[0])
-                chunk = N // P
-                print(f"P : {P}, N : {N}")
+                
+                # p is the total number of the processes
+                # n is the size of a tensor
+                p = len(mod_param_group_data)
+                n = len(mod_param_group_data[0])
+
+                chunk = n // p
                 # process 1 - mod_param_group_data[0] - a
                 # process 2 - mod_param_group_data[1] - b
                 # process 3 - mod_param_group_data[2] - c
                 # process 4 - mod_param_group_data[3] - d
                 # step 1
-                mod_param_group_data[0][3*chunk:4*chunk] += mod_param_group_data[3][3*chunk:4*chunk]
-                mod_param_group_data[1][0:chunk] += mod_param_group_data[0][0:chunk]
-                mod_param_group_data[2][chunk:2*chunk] += mod_param_group_data[1][chunk:2*chunk]
-                mod_param_group_data[3][2*chunk:3*chunk] += mod_param_group_data[2][2*chunk:3*chunk]
+                mod_param_group_data[0][3*chunk: 4*chunk] += mod_param_group_data[3][3 * chunk: 4*chunk]
+                mod_param_group_data[1][0: chunk] += mod_param_group_data[0][0:chunk]
+                mod_param_group_data[2][chunk: 2*chunk] += mod_param_group_data[1][chunk: 2*chunk]
+                mod_param_group_data[3][2*chunk: 3*chunk] += mod_param_group_data[2][2*chunk: 3*chunk]
+
                 # step 2
-                mod_param_group_data[0][2 * chunk:3 * chunk] += mod_param_group_data[3][2*chunk:3*chunk]
-                mod_param_group_data[1][3 * chunk:4 * chunk] += mod_param_group_data[0][3 * chunk:4 * chunk]
-                mod_param_group_data[2][0:chunk] += mod_param_group_data[1][0:chunk]
-                mod_param_group_data[3][chunk:2 * chunk] += mod_param_group_data[2][chunk:2 * chunk]
+                mod_param_group_data[0][2*chunk: 3*chunk] += mod_param_group_data[3][2*chunk: 3*chunk]
+                mod_param_group_data[1][3*chunk: 4*chunk] += mod_param_group_data[0][3*chunk: 4*chunk]
+                mod_param_group_data[2][0: chunk] += mod_param_group_data[1][0: chunk]
+                mod_param_group_data[3][chunk: 2*chunk] += mod_param_group_data[2][chunk: 2*chunk]
+
                 # step 3
-                mod_param_group_data[0][chunk:2 * chunk] += mod_param_group_data[3][chunk:2 * chunk]
-                mod_param_group_data[1][2 * chunk:3 * chunk] += mod_param_group_data[0][2 * chunk:3 * chunk]
-                mod_param_group_data[2][3 * chunk:4 * chunk] += mod_param_group_data[1][3 * chunk:4 * chunk]
-                mod_param_group_data[3][0:chunk] += mod_param_group_data[2][0:chunk]
+                mod_param_group_data[0][chunk:2 * chunk] += mod_param_group_data[3][chunk: 2*chunk]
+                mod_param_group_data[1][2 * chunk: 3*chunk] += mod_param_group_data[0][2 * chunk: 3*chunk]
+                mod_param_group_data[2][3 * chunk: 4*chunk] += mod_param_group_data[1][3 * chunk: 4*chunk]
+                mod_param_group_data[3][0: chunk] += mod_param_group_data[2][0: chunk]
 
                 # consolidating the result of each chunk
-                for i in range(4):
-                    mod_param_group_data[i][0:chunk] = mod_param_group_data[3][0:chunk]/4
-                    mod_param_group_data[i][chunk: 2*chunk] = mod_param_group_data[0][chunk:2*chunk]/4
-                    mod_param_group_data[i][2*chunk: 3*chunk] = mod_param_group_data[1][2*chunk:3*chunk]/4
-                    mod_param_group_data[i][3*chunk: 4*chunk] = mod_param_group_data[2][3*chunk:4*chunk]/4
+                mod_param_group_data[0][0: chunk] = mod_param_group_data[3][0: chunk] / 4
+                mod_param_group_data[0][chunk: 2 * chunk] = mod_param_group_data[0][chunk: 2 * chunk] / 4
+                mod_param_group_data[0][2 * chunk: 3 * chunk] = mod_param_group_data[1][2 * chunk: 3 * chunk] / 4
+                mod_param_group_data[0][3 * chunk: 4 * chunk] = mod_param_group_data[2][3 * chunk: 4 * chunk] / 4
+
+                for i in range(1, 4):
+                    mod_param_group_data[i][0: chunk] = mod_param_group_data[0][0: chunk]
+                    mod_param_group_data[i][chunk: 2*chunk] = mod_param_group_data[0][chunk: 2*chunk]
+                    mod_param_group_data[i][2*chunk: 3*chunk] = mod_param_group_data[0][2*chunk: 3*chunk]
+                    mod_param_group_data[i][3*chunk: 4*chunk] = mod_param_group_data[0][3*chunk: 4*chunk]
 
                 # applying the reduce operation to the rest part (if N % P != 0)
-                if N % P != 0:
+                if n % p != 0:
                     reduced_rest = 0
                     for i in range(4):
-                        reduced_rest += mod_param_group_data[i][P * chunk: N]
-
-                    for grad in mod_param_group_data:
-                        grad[P * chunk: N] = reduced_rest/4
-                # comparing
-                print(f"my_grad : {mod_param_group_data[0]}")
-                print(f"reduced_grad : {reduced_tensor}")
+                        reduced_rest += mod_param_group_data[i][p*chunk: n]
+                    for i in range(4):
+                        mod_param_group_data[i][p*chunk: n] = reduced_rest / 4
 
         if not dry_run and not no_grad:
             for i_replica, (model, optimizer) in enumerate(zip(self.models, self.optimizers)):
@@ -269,9 +274,11 @@ class Trainer:
         if shrink_dataset:
             train_data_size = 2000
             val_data_size = 1000
+
             def _shrink_dataset(dataset, size):
                 dataset.data = dataset.data[:size]
                 dataset.targets = dataset.targets[:size]
+
             _shrink_dataset(self.dataset_train, train_data_size)
             _shrink_dataset(self.dataset_val, val_data_size)
 
@@ -324,7 +331,7 @@ class Trainer:
             if batch_idx % self.args.log_interval == 0:
                 print('Train Epoch: {} [{}/{} ({:.0f}%)]\tRef loss: {:.6f}\tDP loss: {:.6f}'.format(
                     epoch, batch_idx * len(data), len(self.train_loader.dataset),
-                    100. * batch_idx / len(self.train_loader), ref_loss, dp_loss))
+                           100. * batch_idx / len(self.train_loader), ref_loss, dp_loss))
 
     def test(self):
         self.dataparallel_model.train(False)
@@ -385,3 +392,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
