@@ -198,7 +198,7 @@ class DataparallelModel(GenericModel):
                 for i in range(4):
                     mod_param_group_data[i][0:chunk] = mod_param_group_data[3][0:chunk]/4
                     mod_param_group_data[i][chunk: 2*chunk] = mod_param_group_data[0][chunk:2*chunk]/4
-                    mod_param_group_data[i][2*chunk: 3*chunk] = mod_param_group_data[3][2*chunk:3*chunk]/4
+                    mod_param_group_data[i][2*chunk: 3*chunk] = mod_param_group_data[1][2*chunk:3*chunk]/4
                     mod_param_group_data[i][3*chunk: 4*chunk] = mod_param_group_data[2][3*chunk:4*chunk]/4
 
                 # applying the reduce operation to the rest part (if N % P != 0)
