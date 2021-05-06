@@ -181,7 +181,7 @@ class DataparallelModel(GenericModel):
                 it1.insert(0, p-1)
                 it = it1
 
-                for i in range(p - 1):
+                for _ in range(p-1):
                     for j in range(p):
                         slice_ = slice(it1[j] * chunk, (it1[j] + 1) * chunk)
                         mod_param_group_data[j][slice_] += mod_param_group_data[it[j]][slice_]
@@ -194,20 +194,20 @@ class DataparallelModel(GenericModel):
                         mod_param_group_data[0][0: chunk] = mod_param_group_data[p - 1][0: chunk] / p
                     else:
                         slice_ = slice(j * chunk, (j + 1) * chunk)
-                        mod_param_group_data[0][slice_] = mod_param_group_data[j - 1][slice_ ] / p
+                        mod_param_group_data[0][slice_] = mod_param_group_data[j - 1][slice_] / p
 
                 for i in range(1, p):
                     for j in range(p):
                         slice_ = slice(j * chunk, (j + 1) * chunk)
                         mod_param_group_data[i][slice_] = mod_param_group_data[0][slice_]
 
-                # applying the reduce operation to the rest part (if n % p != 0)
+                # applying the reduce operation to the rest part
                 if n % p != 0:
                     reduced_rest = 0
                     for i in range(p):
                         reduced_rest += mod_param_group_data[i][p*chunk: n]
                     for i in range(p):
-                        mod_param_group_data[i][p*chunk: n] = reduced_rest/p
+                        mod_param_group_data[i][p*chunk: n] = reduced_rest / p
 
         if not dry_run and not no_grad:
             for i_replica, (model, optimizer) in enumerate(zip(self.models, self.optimizers)):
