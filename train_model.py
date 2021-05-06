@@ -169,7 +169,7 @@ class DataparallelModel(GenericModel):
                 # Ring-All-reduce implementation
 
                 mod_param_group_data = tuple(p.grad for p in param_group)
-                
+
                 # p is the total number of the processes
                 # n is the size of a tensor
                 p = len(mod_param_group_data)
@@ -177,36 +177,37 @@ class DataparallelModel(GenericModel):
 
                 chunk = n // p
 
-                it1 = [i for i in range(p - 1)]
-                it1.insert(0, p - 1)
+                it1 = [i for i in range(p-1)]
+                it1.insert(0, p-1)
                 it = it1
-                it2 = [x+1 for x in it1]
 
                 for i in range(p - 1):
                     for j in range(p):
-                        mod_param_group_data[j][it1[j]*chunk: it2[j]*chunk] += mod_param_group_data[it[j]][it1[j]*chunk: it2[j]*chunk]
+                        slice_ = slice(it1[j] * chunk, (it1[j] + 1) * chunk)
+                        mod_param_group_data[j][slice_] += mod_param_group_data[it[j]][slice_]
                     it1 = it1[-1:] + it1[:-1]
-                    it2 = it2[-1:] + it2[:-1]
 
                 # consolidating the result of each chunk
 
                 for j in range(p):
                     if j == 0:
-                        mod_param_group_data[0][0: chunk] = mod_param_group_data[p - 1][0: chunk]/p
+                        mod_param_group_data[0][0: chunk] = mod_param_group_data[p - 1][0: chunk] / p
                     else:
-                        mod_param_group_data[0][j*chunk: (j + 1)*chunk] = mod_param_group_data[j - 1][j*chunk: (j + 1)*chunk]/p
+                        slice_ = slice(j * chunk, (j + 1) * chunk)
+                        mod_param_group_data[0][slice_] = mod_param_group_data[j - 1][slice_ ] / p
 
                 for i in range(1, p):
                     for j in range(p):
-                        mod_param_group_data[i][j*chunk: (j + 1)*chunk] = mod_param_group_data[0][j*chunk: (j + 1)*chunk]
+                        slice_ = slice(j * chunk, (j + 1) * chunk)
+                        mod_param_group_data[i][slice_] = mod_param_group_data[0][slice_]
 
-                # applying the reduce operation to the rest part (if N % P != 0)
+                # applying the reduce operation to the rest part (if n % p != 0)
                 if n % p != 0:
                     reduced_rest = 0
                     for i in range(p):
-                        reduced_rest += mod_param_group_data[i][p * chunk: n]
+                        reduced_rest += mod_param_group_data[i][p*chunk: n]
                     for i in range(p):
-                        mod_param_group_data[i][p * chunk: n] = reduced_rest / p
+                        mod_param_group_data[i][p*chunk: n] = reduced_rest/p
 
         if not dry_run and not no_grad:
             for i_replica, (model, optimizer) in enumerate(zip(self.models, self.optimizers)):
@@ -365,7 +366,7 @@ def parse_args(external_args=None):
                         help='how many batches to wait before logging training status')
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
-    parser.add_argument('--num-replicas', type=int, default=2, metavar='N',
+    parser.add_argument('--num-replicas', type=int, default=8, metavar='N',
                         help='number of dataparallel replicas (default: 4)')
     if external_args is not None:
         args = parser.parse_args(external_args)
