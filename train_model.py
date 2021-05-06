@@ -176,47 +176,37 @@ class DataparallelModel(GenericModel):
                 n = len(mod_param_group_data[0])
 
                 chunk = n // p
-                # process 1 - mod_param_group_data[0] - a
-                # process 2 - mod_param_group_data[1] - b
-                # process 3 - mod_param_group_data[2] - c
-                # process 4 - mod_param_group_data[3] - d
-                # step 1
-                mod_param_group_data[0][3*chunk: 4*chunk] += mod_param_group_data[3][3 * chunk: 4*chunk]
-                mod_param_group_data[1][0: chunk] += mod_param_group_data[0][0:chunk]
-                mod_param_group_data[2][chunk: 2*chunk] += mod_param_group_data[1][chunk: 2*chunk]
-                mod_param_group_data[3][2*chunk: 3*chunk] += mod_param_group_data[2][2*chunk: 3*chunk]
 
-                # step 2
-                mod_param_group_data[0][2*chunk: 3*chunk] += mod_param_group_data[3][2*chunk: 3*chunk]
-                mod_param_group_data[1][3*chunk: 4*chunk] += mod_param_group_data[0][3*chunk: 4*chunk]
-                mod_param_group_data[2][0: chunk] += mod_param_group_data[1][0: chunk]
-                mod_param_group_data[3][chunk: 2*chunk] += mod_param_group_data[2][chunk: 2*chunk]
+                it1 = [i for i in range(p - 1)]
+                it1.insert(0, p - 1)
+                it = it1
+                it2 = [x+1 for x in it1]
 
-                # step 3
-                mod_param_group_data[0][chunk:2 * chunk] += mod_param_group_data[3][chunk: 2*chunk]
-                mod_param_group_data[1][2 * chunk: 3*chunk] += mod_param_group_data[0][2 * chunk: 3*chunk]
-                mod_param_group_data[2][3 * chunk: 4*chunk] += mod_param_group_data[1][3 * chunk: 4*chunk]
-                mod_param_group_data[3][0: chunk] += mod_param_group_data[2][0: chunk]
+                for i in range(p - 1):
+                    for j in range(p):
+                        mod_param_group_data[j][it1[j]*chunk: it2[j]*chunk] += mod_param_group_data[it[j]][it1[j]*chunk: it2[j]*chunk]
+                    it1 = it1[-1:] + it1[:-1]
+                    it2 = it2[-1:] + it2[:-1]
 
                 # consolidating the result of each chunk
-                mod_param_group_data[0][0: chunk] = mod_param_group_data[3][0: chunk] / 4
-                mod_param_group_data[0][chunk: 2 * chunk] = mod_param_group_data[0][chunk: 2 * chunk] / 4
-                mod_param_group_data[0][2 * chunk: 3 * chunk] = mod_param_group_data[1][2 * chunk: 3 * chunk] / 4
-                mod_param_group_data[0][3 * chunk: 4 * chunk] = mod_param_group_data[2][3 * chunk: 4 * chunk] / 4
 
-                for i in range(1, 4):
-                    mod_param_group_data[i][0: chunk] = mod_param_group_data[0][0: chunk]
-                    mod_param_group_data[i][chunk: 2*chunk] = mod_param_group_data[0][chunk: 2*chunk]
-                    mod_param_group_data[i][2*chunk: 3*chunk] = mod_param_group_data[0][2*chunk: 3*chunk]
-                    mod_param_group_data[i][3*chunk: 4*chunk] = mod_param_group_data[0][3*chunk: 4*chunk]
+                for j in range(p):
+                    if j == 0:
+                        mod_param_group_data[0][0: chunk] = mod_param_group_data[p - 1][0: chunk]/p
+                    else:
+                        mod_param_group_data[0][j*chunk: (j + 1)*chunk] = mod_param_group_data[j - 1][j*chunk: (j + 1)*chunk]/p
+
+                for i in range(1, p):
+                    for j in range(p):
+                        mod_param_group_data[i][j*chunk: (j + 1)*chunk] = mod_param_group_data[0][j*chunk: (j + 1)*chunk]
 
                 # applying the reduce operation to the rest part (if N % P != 0)
                 if n % p != 0:
                     reduced_rest = 0
-                    for i in range(4):
-                        reduced_rest += mod_param_group_data[i][p*chunk: n]
-                    for i in range(4):
-                        mod_param_group_data[i][p*chunk: n] = reduced_rest / 4
+                    for i in range(p):
+                        reduced_rest += mod_param_group_data[i][p * chunk: n]
+                    for i in range(p):
+                        mod_param_group_data[i][p * chunk: n] = reduced_rest / p
 
         if not dry_run and not no_grad:
             for i_replica, (model, optimizer) in enumerate(zip(self.models, self.optimizers)):
@@ -375,7 +365,7 @@ def parse_args(external_args=None):
                         help='how many batches to wait before logging training status')
     parser.add_argument('--save-model', action='store_true', default=False,
                         help='For Saving the current Model')
-    parser.add_argument('--num-replicas', type=int, default=4, metavar='N',
+    parser.add_argument('--num-replicas', type=int, default=2, metavar='N',
                         help='number of dataparallel replicas (default: 4)')
     if external_args is not None:
         args = parser.parse_args(external_args)
